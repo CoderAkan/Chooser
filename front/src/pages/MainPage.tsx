@@ -1,0 +1,224 @@
+import { FC, useState, useEffect, useRef } from 'react'
+import { Logo, Settings } from '../components/icons'
+import { NavLink } from 'react-router-dom'
+import { store } from '../store/store';
+import { useAppDispatch } from '../store/hooks';
+import { ModalWindow } from '../store/User/userSlice';
+import TaskWindow from '../components/taskWindow';
+
+const MainPage: FC = () => {
+  const state = store.getState();
+  const dispatch = useAppDispatch();
+  const numberOfPlayers = state.user.numberOfPlayers;
+  const colors_300 = ['bg-red-300', 'bg-blue-300', 'bg-green-300', 'bg-pink-300', 'bg-yellow-300', 'bg-orange-300', 'bg-teal-300', 'bg-lime-300']
+  const colors_500 = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-pink-500', 'bg-yellow-500', 'bg-orange-500', 'bg-teal-500', 'bg-lime-500']
+
+  const [activeHolds, setActiveHolds] = useState<Set<number>>(new Set());
+  const [selectedPlayerIndex, setSelectedPlayerIndex] = useState<number | null>(null);
+  const [isSelectionComplete, setIsSelectionComplete] = useState(false);
+  // Add countdown state
+  const [countdown, setCountdown] = useState<number | null>(null);
+  // Track player statuses
+  const [playerStatuses, setPlayerStatuses] = useState<Record<number, string>>({});
+  // Add state for showing the completion modal
+  const showCompletionModal = state.user.showModalWindow;
+  
+  const activeHoldsRef = useRef<Set<number>>(new Set());
+  const holdTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  // Add ref for countdown intervals
+  const countdownIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+
+  useEffect(() => {
+    activeHoldsRef.current = activeHolds;
+  }, [activeHolds]);
+
+  const handleMouseDown = (index: number) => {
+    if (isSelectionComplete) return;
+    
+    setActiveHolds(prev => {
+      const newActiveHolds = new Set(prev);
+      newActiveHolds.add(index);
+      return newActiveHolds;
+    });
+    
+    if (holdTimersRef.current[index]) {
+      clearTimeout(holdTimersRef.current[index]);
+    }
+    
+    // Set initial countdown for this player
+    setCountdown(3);
+    
+    // Clear any existing interval
+    if (countdownIntervalsRef.current[index]) {
+      clearInterval(countdownIntervalsRef.current[index]);
+    }
+    
+    // Set up countdown interval
+    countdownIntervalsRef.current[index] = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          clearInterval(countdownIntervalsRef.current[index]);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    holdTimersRef.current[index] = setTimeout(() => {
+      if (activeHoldsRef.current.has(index)) {
+        const participatingPlayers = Array.from(activeHoldsRef.current);
+        
+        if (participatingPlayers.length > 0) {
+          const randomIndex = Math.floor(Math.random() * participatingPlayers.length);
+          const selectedPlayer = participatingPlayers[randomIndex];
+          const newPlayerStatuses = {...playerStatuses};
+          
+          participatingPlayers.forEach(playerIndex => {
+            if (playerIndex !== selectedPlayer) {
+              newPlayerStatuses[playerIndex] = "You Lost!";
+            } else {
+              // Change text for the selected (last remaining) player
+              newPlayerStatuses[playerIndex] = `Player ${playerIndex + 1} was lost`;
+            }
+          });
+          setPlayerStatuses(newPlayerStatuses);
+          
+          setSelectedPlayerIndex(selectedPlayer);
+          setIsSelectionComplete(true);
+          
+          // Clear all timers and intervals
+          Object.values(holdTimersRef.current).forEach(timer => clearTimeout(timer));
+          Object.values(countdownIntervalsRef.current).forEach(interval => clearInterval(interval));
+          holdTimersRef.current = {};
+          countdownIntervalsRef.current = {};
+          
+          // Reset countdown
+          setCountdown(null);
+          
+          // Show the completion modal after 2 seconds
+          setTimeout(() => {
+            dispatch(ModalWindow(true));
+          }, 2000);
+        }
+      }
+    }, 3000);
+  };
+
+  const handleMouseUp = (index: number) => {
+    if (isSelectionComplete) return;
+    
+    if (holdTimersRef.current[index]) {
+      clearTimeout(holdTimersRef.current[index]);
+      delete holdTimersRef.current[index];
+    }
+    
+    if (countdownIntervalsRef.current[index]) {
+      clearInterval(countdownIntervalsRef.current[index]);
+      delete countdownIntervalsRef.current[index];
+    }
+    
+    setActiveHolds(prev => {
+      const newActiveHolds = new Set(prev);
+      newActiveHolds.delete(index);
+      return newActiveHolds;
+    });
+    
+    // Reset countdown if no active holds
+    if (activeHolds.size <= 1) {
+      setCountdown(null);
+    }
+  };
+
+  const playingAgain = () => {
+    setActiveHolds(new Set<number>());
+    activeHoldsRef.current = new Set<number>();
+    setSelectedPlayerIndex(null);
+    setIsSelectionComplete(false);
+    setCountdown(null);
+    setPlayerStatuses({});
+    dispatch(ModalWindow(false));
+    
+    Object.values(holdTimersRef.current).forEach(timer => clearTimeout(timer));
+    Object.values(countdownIntervalsRef.current).forEach(interval => clearInterval(interval));
+    holdTimersRef.current = {};
+    countdownIntervalsRef.current = {};
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(holdTimersRef.current).forEach(timer => clearTimeout(timer));
+      Object.values(countdownIntervalsRef.current).forEach(interval => clearInterval(interval));
+    };
+  }, []);
+
+  return (
+    <div className='flex flex-col w-full h-screen'>
+        <div className='flex ml-3 mr-3 mt-3 font-light text-3xl justify-between items-center mb-auto'>
+            <NavLink to={'/'} className='flex flex-col mr-auto justify-center items-center'>
+                <Logo />
+                Chooser
+            </NavLink>
+            <NavLink to={'/settings'} className='flex flex-col ml-auto justify-center items-center'>
+                <Settings />
+                Settings
+            </NavLink>
+        </div>
+        <div className={`grid gap-8 mb-auto mx-4 ${
+            numberOfPlayers <= 2 ? 'grid-cols-2 grid-rows-1' :
+            numberOfPlayers <= 4 ? 'grid-cols-2 grid-rows-2' :
+            numberOfPlayers <= 6 ? 'grid-cols-2 grid-rows-3' :
+            'grid-cols-2 grid-rows-4'
+        }`}>
+            {Array.from({length: numberOfPlayers}).map((_, index) => (
+                <div 
+                    key={index}
+                    onMouseDown={() => handleMouseDown(index)}
+                    onMouseUp={() => handleMouseUp(index)}
+                    onMouseLeave={() => handleMouseUp(index)}
+                    onTouchStart={() => handleMouseDown(index)}
+                    onTouchEnd={() => handleMouseUp(index)}
+                    onTouchCancel={() => handleMouseUp(index)}
+                    className={`p-4 rounded cursor-pointer transform transition-all duration-300 select-none ${
+                        isSelectionComplete && selectedPlayerIndex !== index ? 'opacity-0 scale-0' : 
+                        activeHolds.has(index) ? colors_500[index] : colors_300[index]
+                    }`}
+                    style={{
+                        transition: 'opacity 300ms, transform 300ms',
+                        userSelect: 'none',
+                    }}
+                >
+                    <div className="w-full h-20 flex items-center justify-center text-lg font-medium">
+                        {isSelectionComplete ? 
+                            playerStatuses[index] || `Player ${index + 1}` :
+                            activeHolds.has(index) ? 
+                                "Holding..." : 
+                                `Player ${index + 1}`
+                        }
+                    </div>
+                </div>
+            ))}
+        </div>
+        {!isSelectionComplete && activeHolds.size > 0 && countdown !== null && (
+            <div className="text-center text-2xl font-bold mt-4">
+                {countdown === 0 ? "Time's up!" : `${countdown} seconds left`}
+            </div>
+        )}
+        {isSelectionComplete && !showCompletionModal && (
+            <div className="flex justify-center mb-8">
+                <button 
+                    onClick={playingAgain}
+                    className="bg-gray-500 hover:bg-gray-600 text-white py-2 px-4 rounded"
+                >
+                    Let's play again
+                </button>
+            </div>
+        )}
+        
+        {/* Completion Modal */}
+        {showCompletionModal && <TaskWindow />}
+    </div>
+  )
+}
+
+export default MainPage
