@@ -3,6 +3,7 @@ import type { RootState } from '../store'
 import { filterTask } from '../../types/type'
 
 interface UserState {
+    mainNumberOfPlayers: number,
     numberOfPlayers: number,
     showModalWindow: boolean,
     elimination: boolean,
@@ -11,6 +12,7 @@ interface UserState {
 }
 
 const initialState: UserState = {
+  mainNumberOfPlayers: 0,
   numberOfPlayers: 0,
   showModalWindow: false,
   elimination: true,
@@ -22,11 +24,16 @@ export const UserSlice = createSlice({
   name: 'user',
   initialState,
   reducers: {
+    setMainNumberOfPlayers: (state, action: PayloadAction<number | 0>) => {
+      state.mainNumberOfPlayers = action.payload
+    },
     setNumberOfPlayers: (state, action: PayloadAction<number | 0>) => {
         state.numberOfPlayers = action.payload
+        console.log("The number of players ", state.numberOfPlayers)
     },
     ModalWindow: (state, action: PayloadAction<boolean>) => {
         state.showModalWindow = action.payload
+        console.log("Modal window")
     },
     ChangeTaskProperties: (state, action: PayloadAction<filterTask>) => {
         state.elimination = action.payload.elimination,
@@ -36,7 +43,7 @@ export const UserSlice = createSlice({
   },
 })
 
-export const { setNumberOfPlayers, ModalWindow } = UserSlice.actions
+export const { setNumberOfPlayers, ModalWindow, setMainNumberOfPlayers, ChangeTaskProperties } = UserSlice.actions
 
 // Other code such as selectors can use the imported `RootState` type
 export const selectCount = (state: RootState) => state.user

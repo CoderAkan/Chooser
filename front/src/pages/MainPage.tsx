@@ -3,13 +3,16 @@ import { Logo, Settings } from '../components/icons'
 import { NavLink } from 'react-router-dom'
 import { store } from '../store/store';
 import { useAppDispatch } from '../store/hooks';
-import { ModalWindow } from '../store/User/userSlice';
+import { ModalWindow, setMainNumberOfPlayers, setNumberOfPlayers } from '../store/User/userSlice';
 import TaskWindow from '../components/taskWindow';
+import { tasks } from '../service/getTask';
+import { filterTask, windowTask } from '../types/type';
 
 const MainPage: FC = () => {
   const state = store.getState();
   const dispatch = useAppDispatch();
   const numberOfPlayers = state.user.numberOfPlayers;
+  const elimination = state.user.elimination;
   const colors_300 = ['bg-red-300', 'bg-blue-300', 'bg-green-300', 'bg-pink-300', 'bg-yellow-300', 'bg-orange-300', 'bg-teal-300', 'bg-lime-300']
   const colors_500 = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-pink-500', 'bg-yellow-500', 'bg-orange-500', 'bg-teal-500', 'bg-lime-500']
 
@@ -21,12 +24,24 @@ const MainPage: FC = () => {
   // Track player statuses
   const [playerStatuses, setPlayerStatuses] = useState<Record<number, string>>({});
   // Add state for showing the completion modal
-  const showCompletionModal = state.user.showModalWindow;
+  const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
+  const [tasK, setTasK] = useState<windowTask>();
+  
+  // Reference to store modal timeout
+  const modalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Store original player count
+  const originalPlayerCountRef = useRef<number>(state.user.mainNumberOfPlayers);
   
   const activeHoldsRef = useRef<Set<number>>(new Set());
   const holdTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   // Add ref for countdown intervals
   const countdownIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+
+  useEffect(() => {
+    // Store the original number of players for reset
+    originalPlayerCountRef.current = state.user.mainNumberOfPlayers;
+  }, [state.user.mainNumberOfPlayers]);
 
   useEffect(() => {
     activeHoldsRef.current = activeHolds;
@@ -47,7 +62,6 @@ const MainPage: FC = () => {
     
     // Set initial countdown for this player
     setCountdown(3);
-    
     // Clear any existing interval
     if (countdownIntervalsRef.current[index]) {
       clearInterval(countdownIntervalsRef.current[index]);
@@ -78,8 +92,7 @@ const MainPage: FC = () => {
             if (playerIndex !== selectedPlayer) {
               newPlayerStatuses[playerIndex] = "You Lost!";
             } else {
-              // Change text for the selected (last remaining) player
-              newPlayerStatuses[playerIndex] = `Player ${playerIndex + 1} was lost`;
+              newPlayerStatuses[playerIndex] = `Player ${playerIndex + 1} lost`;
             }
           });
           setPlayerStatuses(newPlayerStatuses);
@@ -96,9 +109,21 @@ const MainPage: FC = () => {
           // Reset countdown
           setCountdown(null);
           
-          // Show the completion modal after 2 seconds
-          setTimeout(() => {
-            dispatch(ModalWindow(true));
+          // Set a timeout to show the completion modal after 2 seconds
+          // Store the timeout reference so we can clear it if needed
+          if (modalTimeoutRef.current) {
+            clearTimeout(modalTimeoutRef.current);
+          }
+          
+          modalTimeoutRef.current = setTimeout(() => {
+            const filter_data: filterTask = {
+              elimination: state.user.elimination,
+              difficulty_level: state.user.difficulty_level,
+              time_to_do: state.user.time_to_do
+            };
+            const data = tasks.getTask(filter_data);
+            setTasK(data);
+            setShowCompletionModal(true);
           }, 2000);
         }
       }
@@ -131,14 +156,22 @@ const MainPage: FC = () => {
   };
 
   const playingAgain = () => {
+    // Clear the modal timeout to prevent it from showing up
+    if (modalTimeoutRef.current) {
+      clearTimeout(modalTimeoutRef.current);
+      modalTimeoutRef.current = null;
+    }
+    
     setActiveHolds(new Set<number>());
     activeHoldsRef.current = new Set<number>();
     setSelectedPlayerIndex(null);
     setIsSelectionComplete(false);
     setCountdown(null);
     setPlayerStatuses({});
+    setShowCompletionModal(false);
     dispatch(ModalWindow(false));
     
+    // Clean up any remaining timers
     Object.values(holdTimersRef.current).forEach(timer => clearTimeout(timer));
     Object.values(countdownIntervalsRef.current).forEach(interval => clearInterval(interval));
     holdTimersRef.current = {};
@@ -146,11 +179,40 @@ const MainPage: FC = () => {
   };
 
   useEffect(() => {
+    // Check if player count has reached zero
+    if (numberOfPlayers <= 0) {
+      // Reset to original player count
+      dispatch(setNumberOfPlayers(state.user.mainNumberOfPlayers));
+    }
+    
     return () => {
+        playingAgain()
+      // Cleanup on component unmount
+      if (modalTimeoutRef.current) {
+        clearTimeout(modalTimeoutRef.current);
+      }
       Object.values(holdTimersRef.current).forEach(timer => clearTimeout(timer));
       Object.values(countdownIntervalsRef.current).forEach(interval => clearInterval(interval));
     };
-  }, []);
+  }, [numberOfPlayers, dispatch]);
+
+  const filter_data: filterTask = {
+    elimination: state.user.elimination,
+    difficulty_level: state.user.difficulty_level,
+    time_to_do: state.user.time_to_do
+  };
+
+  const handleWontComplete = () => {
+    // Reduce player count
+    dispatch(setNumberOfPlayers(numberOfPlayers - 1));
+    setShowCompletionModal(false);
+    playingAgain();
+  };
+
+  const handleCompleted = () => {
+    setShowCompletionModal(false);
+    playingAgain();
+  };
 
   return (
     <div className='flex flex-col w-full h-screen'>
@@ -216,9 +278,43 @@ const MainPage: FC = () => {
         )}
         
         {/* Completion Modal */}
-        {showCompletionModal && <TaskWindow />}
+        {showCompletionModal && (
+            <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+                    <h3 className="text-lg text-gray-600 font-medium mb-2">{tasK?.title}</h3>
+                    <div className='flex'></div>
+                    <p className="text-gray-600 mb-1">
+                        {tasK?.description}
+                    </p>
+                    <p className="text-gray-600 mb-4">
+                        {`You have ${state.user.time_to_do} minutes to do this`}
+                    </p>
+                    {elimination ? (<div className="flex justify-evenly space-x-3">
+                        <button 
+                            onClick={handleWontComplete}
+                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 py-1 px-4 rounded"
+                        >
+                            Won't complete
+                        </button>
+                        <button 
+                            onClick={handleCompleted}
+                            className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-4 rounded"
+                        >
+                            Completed
+                        </button>
+                    </div>) : (
+                        <button 
+                            onClick={handleCompleted}
+                            className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-4 rounded"
+                        >
+                            Play again
+                        </button>
+                    )}
+                </div>
+            </div>
+        )}
     </div>
-  )
-}
+  );
+};
 
-export default MainPage
+export default MainPage;

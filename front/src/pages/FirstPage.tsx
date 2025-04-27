@@ -1,7 +1,7 @@
 import { FC, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAppDispatch } from '../store/hooks';
-import { UserSlice } from '../store/User/userSlice';
+import { setMainNumberOfPlayers, UserSlice } from '../store/User/userSlice';
 
 const { setNumberOfPlayers } = UserSlice.actions;
 
@@ -39,6 +39,7 @@ const FirstPage: FC = () => {
             onClick={() => {
               if (numberOfPlayers) {
                 dispatch(setNumberOfPlayers(numberOfPlayers));
+                dispatch(setMainNumberOfPlayers(numberOfPlayers));
               }
             }}
             to={'/main'}
